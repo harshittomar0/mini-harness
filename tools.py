@@ -1,4 +1,4 @@
-"""The harness tools: workspace files, bash, and web, plus a single run_tool entry point."""
+"""The harness tools: workspace files, bash, and web, served by mcp_server.py."""
 
 import subprocess
 from pathlib import Path
@@ -124,14 +124,3 @@ def execute(name, args):
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
         return {"error": str(error)}
 
-
-def run_tool(name, args):
-    error = check_call(name, args)
-    if error:
-        return {"error": error}
-    if TOOLS[name]["approval"]:
-        print(f"\n{approval_message(name, args)}")
-        # permission from the user
-        if input("Run this tool? [y/N]: ").strip().lower() != "y":
-            return {"cancelled": "User declined this tool"}
-    return execute(name, args)

@@ -1,9 +1,13 @@
+import asyncio
 import json
+import signal
+from contextlib import AsyncExitStack
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import skills
 import tools
+from mcp_client import MCPClient
 
 LLM_URL = "http://127.0.0.1:8000/chat/" 
 
@@ -36,7 +40,7 @@ def ask_llm(conversation):
     return data["message"]
 
 
-def chat(prompt, call_tool):
+async def chat(prompt, call_tool):
     """Outer loop reads user input; inner loop calls the LLM and runs tools until it answers in text."""
     conversation = [prompt]
     while True:
@@ -59,7 +63,7 @@ def chat(prompt, call_tool):
                     print(f"LLM: {reply}")
                     break
 
-                result = call_tool(call["tool"], call.get("args"))
+                result = await call_tool(call["tool"], call.get("args"))
                 message = "Tool result: " + json.dumps(result)
                 print(message)
         except URLError as error:
@@ -71,18 +75,22 @@ def chat(prompt, call_tool):
             break
 
 
-def main():
-    prompt = "General coding agent."
-    tool_list = [(name, tool["description"], tool["args"]) for name, tool in tools.TOOLS.items()]
-    tool_text = tools_prompt(tool_list, tools.GUIDANCE)
-    skill_text = skills.discover_skills(tools.WORKSPACE_ROOT)
+async def main():
+    # asyncio.run swallows the first Ctrl+C while input() blocks; restore normal behavior.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    async with AsyncExitStack() as stack:
+        client = await MCPClient().connect(stack)
 
-    prompt += "\n" + tool_text + "\n" + skill_text
-    print(f"Workspace: {tools.WORKSPACE_ROOT}")
-    print(f"Skills catalog: {'skills.md' if skill_text else 'none'}")
+        prompt = "General coding agent."
+        tool_text = tools_prompt(client.tool_list, "\n".join(client.instructions))
+        skill_text = skills.discover_skills(tools.WORKSPACE_ROOT)
 
-    chat(prompt, tools.run_tool)
+        prompt += "\n" + tool_text + "\n" + skill_text
+        print(f"Workspace: {tools.WORKSPACE_ROOT}")
+        print(f"Skills catalog: {'skills.md' if skill_text else 'none'}")
+
+        await chat(prompt, client.call_tool)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
